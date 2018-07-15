@@ -1,0 +1,12 @@
+
+In the paper I was a bit simplistic with pure data secret ingredents.
+
+Instead of mixing it with the other ingredients, I should have cyclicly
+XORed it with the intermediate keystream $K_i$.
+
+Thus $K'_i = F(K_i, SI_i)$ where $F = K_i \oplus SI_i$ and $SI_i$ is an
+circular buffer with the data secret ingredient.
+
+Then the attacker will have to guess the complete secret ingredient, 
+instead of sequentially searching a subspace of it.
+
