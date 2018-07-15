@@ -1,59 +1,86 @@
 #!/usr/bin/env python
-
 """
     Pretty Frecking Strong Encryption
     
     Author: Louis Cordier <lcordier@gmail.com>
     Copyright: (c) 2009, All rights reserved.
-    Last Modified: 2009-09-06
+    Last Modified: 2009-10-20
     
     This program focuses on the key distribution problem of one-time pads. 
     Instead of distributing a key we distribute a recipe to make a key. 
     Thus a size-bounded recipe can be turned into an size-unbounded key.
     For example a 5 characters recipe can be turned into a 1TB key.
-    Given a (publicly shared) recipe and a small shared secret (ingredient)
+    Given a publicly shared recipe and a small shared secret (ingredient)
     the generated key can be concidered random for all practical purposes.
     
-    Consider using wipe [1] or ya-wipe [2] to securely delete files, the
-    message for example when you are done encrypting it. 
-    See also Peter Gutmann's paper "Secure Deletion of Data from Magnetic
-    and Solid-State Memory" [3] for reasons why.
+    Consider using wipe [1] or ya-wipe [2] to securely delete the message
+    when you are done encrypting it. See also Peter Gutmann's paper
+    "Secure Deletion of Data from Magnetic and Solid-State Memory" [3] for
+    reasons why.
     
-    [1] http://abaababa.ouvaton.org/wipe/ (in most distributions)
+    [1] http://lambda-diode.com/software/wipe/ (in most distributions)
     [2] http://wipe.sourceforge.net/ (yet another wipe)
     [3] http://www.cs.auckland.ac.nz/~pgut001/pubs/secure_del.html
     
 """
-
-import sys
-import random
-import urllib # We could use pycurl for greater functionality, eg. re-directs.
+import pycurl
 import urlparse
+from StringIO import StringIO
 from optparse import OptionParser
 from subprocess import call
+from decimal import Decimal, InvalidOperation
+import psyco
+psyco.full()
 
 
-def stream_mutate_xor(data, keystream, F):
-    """ XOR data with a mutated keystream (generator).
-        Can you see my Fnord?
+BLOCK_SIZE = 64*1024
+
+def block_mutate_xor(input, output, keystream, F, data_ingredient=None, args=None):
+    """ XOR input with a mutated keystream, F(K_i), and optionally with
+        a data secret-ingredient.
     """
-    for n, c in enumerate(data):
-        yield chr(ord(c) ^ F(ord(keystream.next()), n))
-
-def cyclic_range(start, stop=None, step=1):
-    """ Cyclicly sweep a defined range endlessly. This could be used as is,
-        as an secret ingredient.
-    """
-    if not stop:
-        stop = start
-        start = 0
+    n = 0
+    i = input.read(BLOCK_SIZE)
     
-    pointers = xrange(start, stop)
-    m = len(pointers)
-    index = 0
-    while True:
-        yield pointers[index]
-        index = (index + step) % m
+    if args:
+        if data_ingredient:
+            while i:
+                o = []
+                for c in i:
+                    o.append(chr(ord(c) ^ ord(data_ingredient.next()) ^ F(ord(keystream.next()), n, *args)))
+                    n += 1
+                
+                output.write(''.join(o))
+                i = input.read(BLOCK_SIZE)
+        else:
+            while i:
+                o = []
+                for c in i:
+                    o.append(chr(ord(c) ^ F(ord(keystream.next()), n, *args)))
+                    n += 1
+                
+                output.write(''.join(o))
+                i = input.read(BLOCK_SIZE)
+    else:
+        if data_ingredient:
+            while i:
+                o = []
+                for c in i:
+                    o.append(chr(ord(c) ^ ord(data_ingredient.next()) ^ F(ord(keystream.next()), n)))
+                    n += 1
+                
+                output.write(''.join(o))
+                i = input.read(BLOCK_SIZE)
+        else:
+            while i:
+                o = []
+                for c in i:
+                    o.append(chr(ord(c) ^ F(ord(keystream.next()), n)))
+                    n += 1
+                
+                output.write(''.join(o))
+                i = input.read(BLOCK_SIZE)
+        
 
 def circular_buffer(data):
     """ A generator that sweeps circularly through the data buffer.
@@ -64,24 +91,6 @@ def circular_buffer(data):
         yield data[index]
         index = (index + 1) % m
 
-def prng_iter(seed, offset):
-    """ This is a Pseudo-Random Number Generator used as a secret ingredient.
-    """
-    random.seed(seed)
-    for i in range(offset):
-        null = random.randint(0, 255)
-    
-    while True:
-        yield chr(random.randint(0, 255))
-
-def iter_read(f, iter):
-    """ Read one byte at a time from a file or StingIO object, position 
-        determined by an iterator.
-    """
-    while True:
-        f.seek(iter.next())
-        yield f.read(1)
-
 def iters_demux(*iters):
     """ Demultiplex multiple iterators.
     """
@@ -91,46 +100,60 @@ def iters_demux(*iters):
         yield iters[index].next()
         index = (index + 1) % m
 
-def simple_function(k, n):
-    """ The simple function secret ingredient described in the pfse.pdf.
+def parse_parameters(params):
+    """ Turn a comma-seperated string into a list of values.
     """
-    if (n % 2) == 0:
-        return((k + 3) % 255)
-    else:
-        return((k + 5) % 255)
-
-def memory_function(k, n, registers=[0,1,2,3,4,5,6,7]):
-    """ This is a secret ingredient with 8 bytes of memory. 
-    """
-    index = n % 8
-    r = registers[index]
-    registers[index] = k
+    parameters = []
+    for param in params.split(','):
+        try:
+            p = int(param)
+        except ValueError:
+            try:
+                p = Decimal(param)
+            except InvalidOperation:
+                if param.lower().strip() == 'none':
+                    p = None
+                else:
+                    p = param
+        
+        parameters.append(p)
     
-    if (n % 5 == 0):
-        return(r)
-    else:
-        return(k)
+    return(tuple(parameters))
 
-def null_mutation(k, n):
+def null(k, n):
     """ The mutation function that does nothing.
-        Thus could be written as, null_mutation = lambda k, n: k.
     """
     return(k)
 
-
 if __name__ == '__main__':
     
-    version = '%prog 1.0'
+    version = '%prog 1.1'
     parser = OptionParser(usage='%prog [options]',
                           version=version)
     
     parser.add_option('-c',
-                      '--command',
-                      dest='command',
+                      '--catalog',
+                      dest='catalog',
                       action='store',
                       type='string',
-                      default='xcode',
-                      help='one of xcode, wipe [default: xcode]')
+                      default='catalog',
+                      help='function catalog filename, needs to be a .py file')
+    
+    parser.add_option('-d',
+                      '--data',
+                      dest='data',
+                      action='store',
+                      type='string',
+                      default='',
+                      help='data secret-ingredient filename')
+    
+    parser.add_option('-f',
+                      '--function',
+                      dest='function',
+                      action='store',
+                      type='string',
+                      default='',
+                      help='function secret-ingredient, name in catalog')
     
     parser.add_option('-i',
                       '--input',
@@ -139,13 +162,13 @@ if __name__ == '__main__':
                       type='string',
                       help='input filename')
     
-    parser.add_option('-k',
-                      '--key',
-                      dest='key',
+    parser.add_option('-l',
+                      '--limit',
+                      dest='limit',
                       action='store',
-                      type='string',
-                      default='',
-                      help='key filename')
+                      type='int',
+                      default=0,
+                      help='ingredient fetch size-limit (bytes)')
     
     parser.add_option('-o',
                       '--output',
@@ -155,6 +178,14 @@ if __name__ == '__main__':
                       default='',
                       help='output filename')
     
+    parser.add_option('-p',
+                      '--parameters',
+                      dest='parameters',
+                      action='store',
+                      type='string',
+                      default='',
+                      help='additional fuctional secret-ingredient parameters')
+    
     parser.add_option('-r',
                       '--recipe',
                       dest='recipe',
@@ -163,89 +194,157 @@ if __name__ == '__main__':
                       default='',
                       help='key recipe')
     
-    parser.add_option('-s',
-                      '--secret-ingredient',
-                      dest='secret_ingredient',
-                      action='store',
-                      type='int',
-                      default=2,
-                      help='secret ingredient, a number (0..3) [default: 2]')
+    parser.add_option('-w',
+                      '--wipe',
+                      dest='wipe',
+                      action='store_true',
+                      default=False,
+                      help='securely wipe the input file')
     
     options, args = parser.parse_args()
     
+    c = options.catalog
+    if c.find('.py') > -1:
+        c = c.rstrip('.py')
+    
+    try:
+        catalog = __import__(c)
+    except ImportError, error:
+        print('Functional catalog file not found, it needs to be a .py file.')
+        raise SystemExit
+    
     ingredients = []
     
-    if options.recipe:
-        scheme, netloc, path, params, query, fragment = urlparse.urlparse(options.recipe)
-        ingredient_resources = fragment.split('#')
+    limit = options.limit
+    recipe = options.recipe
     
-        for url in ingredient_resources:
+    if recipe:
+        # Shortened recipe URL?
+        if recipe.count('#') < 1:
+            buffer = StringIO()
+            curl = pycurl.Curl()
+            curl.setopt(pycurl.URL, recipe)
+            curl.setopt(pycurl.FOLLOWLOCATION, 0)
+            curl.setopt(pycurl.CONNECTTIMEOUT, 30)
+            curl.setopt(pycurl.TIMEOUT, 300)
+            curl.setopt(pycurl.WRITEFUNCTION, buffer.write)
+            
             try:
-                ingredients.append(circular_buffer(urllib.urlopen(url).read()))
+                curl.perform()
+            except:
+                print('Network issues with the recipe URL.')
+                raise SystemExit
+            else:
+                recipe = curl.getinfo(pycurl.REDIRECT_URL)
+        
+        scheme, netloc, path, params, query, fragment = urlparse.urlparse(recipe)
+        public_ingredients = fragment.split('#')
+        
+        for ingredient in public_ingredients:
+            # We could use pycurl.CurlMulti() to speed-up downloads,
+            # I prefer simpler code. ;p
+            buffer = StringIO()
+            
+            curl = pycurl.Curl()
+            curl.setopt(pycurl.URL, ingredient)
+            curl.setopt(pycurl.AUTOREFERER, 1)
+            curl.setopt(pycurl.FOLLOWLOCATION, 1)
+            curl.setopt(pycurl.MAXREDIRS, -1)
+            curl.setopt(pycurl.CONNECTTIMEOUT, 30)
+            curl.setopt(pycurl.TIMEOUT, 300)
+            curl.setopt(pycurl.WRITEFUNCTION, buffer.write)
+            
+            if limit:
+                curl.setopt(pycurl.HTTPHEADER, ['Range: bytes=0-%d' % (limit-1)])
+            
+            try:
+                curl.perform()
             except:
                 pass
+            else:
+                if limit:
+                    # Just in case the webserver doesn't honor range headers.
+                    data = buffer.getvalue()[:limit]
+                else:
+                    data = buffer.getvalue()
+                
+                if data:
+                    # Note, error codes are deliberately not checked,
+                    # thus a 404 page could be a valid ingredient. ;)
+                    ingredients.append(circular_buffer(data))
     
-    if options.secret_ingredient > 3:
-        options.secret_ingredient = 0
+    if not ingredients:
+        print('A proper recipe is needed.')
+        raise SystemExit
     
-    if options.command in ('xcode',):
+    print('Recipe: %s' % recipe)
     
-        # For pure data secret ingredients we don't need a keystream mutation
-        # function (algorithm), $K'_i = K_i$.
-        F = null_mutation
-        
-        if options.secret_ingredient == 0:
-            # If the secret ingredient is simply static data, it gets added to our
-            # other ingredients. This can be any file, an image file preverbly.
-            ingredients.append(circular_buffer(open(sys.argv[0]).read()))
-        
-        if options.secret_ingredient == 1:
-            # If the secret ingedient is a data producing function, we will also
-            # add it to our other ingredients.
-            ingredients.append(prng_iter(31337, 1155))
-        
-        # Mixing the ingredients to produce the intermediate keystream $K_i$. 
-        K_i = iters_demux(*ingredients)
-        
-        if options.secret_ingredient == 2:
-            # Ideally our secret ingredient should be an function (algorithm).
-            # The attacker will then have to guess/compute this secret function.
-            # In this case I could show that the secret-ingredient-space is at
-            # least $Aleph_0$, maybe even $Aleph_1$.
-            F = simple_function
-        
-        if options.secret_ingredient == 3:
-            F = memory_function
+    data_ingredient = None
     
-    if options.command in ('xcode',):
-        if not options.input or not options.output:
-            print('Both input and output filenames are required.\n')
-            parser.print_help()
-            sys.exit(1)
-        
+    if options.data:
         try:
-            output = open(options.output, 'w')
-        except Exception, error:
-            print('There is some issue with your output file.')
+            data_ingredient = circular_buffer(open(options.data, 'rb').read())
+        except IOError, error:
+            print('Some issues with the data secret.')
             print(str(error))
-            sys.exit(1)
-        
-        # This is just for evaluation purposes, a real application dealing with 
-        # large input files will make use of block reads and stream the file.
+            raise SystemExit
+    
+    print('Data Secret: %s' % options.data)
+    
+    if not options.input or not options.output:
+        print('Both input and output filenames are required.')
+        parser.print_help()
+        raise SystemExit
+    else:
         try:
-            data = open(options.input, 'r').read()
+            input = open(options.input, 'rb')
         except Exception, error:
             print('There is some issue with your input file.')
             print(str(error))
-            sys.exit(1)
+            raise SystemExit
         
-        # This piece of code XOR the data with $K'_i = F(K_i)$.
-        for c in stream_mutate_xor(data, K_i, F):
-            output.write(c)
-        
-        output.close()
+        try:
+            output = open(options.output, 'wb')
+        except Exception, error:
+            print('There is some issue with your output file.')
+            print(str(error))
+            raise SystemExit
     
-    if options.command in ('wipe',):
+    if options.parameters:
+        parameters = parse_parameters(options.parameters)
+    else:
+        parameters = None
+    
+    # For data secret ingredients we don't need a keystream mutation function.
+    function_ingredient = null
+    if options.function:
+        try:
+            function_ingredient = getattr(catalog, options.function)
+        except:
+            pass
+
+    if function_ingredient != null:
+        if parameters:
+            print('Function Secret: %s(k, n, %s)\n' % (options.function, ', '.join(str(p) for p in parameters)))
+        else:
+            print('Function Secret: %s(k, n)\n' % (options.function,))
+    else:
+        print('Function Secret: null(k, n)\n')
+    
+    # Intermediate keystream.
+    K_i = iters_demux(*ingredients)
+    
+    try:
+        block_mutate_xor(input, output, K_i, function_ingredient, data_ingredient, parameters)
+    except TypeError, error:
+        print('Problems with function, %s, parameters.' % options.function)
+        print(str(error))
+        raise SystemExit
+    
+    input.close()
+    output.close()
+    
+    if options.wipe:
         command = 'wipe %s' % options.input
         try:
             exit_code = call(command, shell=True)
@@ -253,4 +352,6 @@ if __name__ == '__main__':
             exit_code = 127
         
         if exit_code != 0:
-            print('You need to install a secure-wipe utility, either http://abaababa.ouvaton.org/wipe or http://wipe.sourceforge.net/')
+            print('You need to install a secure-wipe utility, either')
+            print('http://lambda-diode.com/software/wipe/ or')
+            print('http://wipe.sourceforge.net/')
