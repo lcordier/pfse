@@ -2,9 +2,10 @@
 
 """ Bake a recipe into a symmetric key.
 """
-from __future__ import print_function
+import base64
 import hashlib
 import io
+import textwrap
 import requests
 
 
@@ -12,6 +13,10 @@ RECIPE = """
 http://www.louiscordier.com/louis.jpg#0,100
 http://www.louiscordier.com/die_manne.jpg#1000,100
 """
+
+
+class IngredientError(Exception):
+    pass
 
 
 class Ingredient(object):
@@ -31,6 +36,9 @@ class Ingredient(object):
         value = self.ingredient[self.index % self.n]
         self.index += 1
         return(chr(value).encode())
+
+    def seek(self, index):
+        self.index = index
 
 
 def fetch_ingredient(ingredient):
@@ -57,13 +65,16 @@ def fetch_ingredient(ingredient):
     if response.status_code in [206]:
         data = response.content
         if size:
-            assert len(data) == size, "Partial download size mismatch."
+            if len(data) != size:
+                raise IngredientError('Partial download size mismatch.')
         return Ingredient(data)
     elif response.status_code in [200]:
         data = response.content
         if size and len(data) > size:
             data = data[offset:offset + size]
         return Ingredient(data)
+    else:
+        raise IngredientError('Unexpected status code: {}.'.format(response.status_code))
 
 
 def fetch_ingredients(recipe):
@@ -91,11 +102,12 @@ def secret_ingredient(path, offset=0, size=0):
     return Ingredient(data)
 
 
-def bake(ingredients, offset=0, blocks=1):
+def bake(ingredients, password=b'', offset=0, blocks=1):
     """ Bake a key from the ingredients.
     """
     key = io.BytesIO()
     sha512 = hashlib.sha512()
+    sha512.update(password)
 
     for idx in range(offset):
         for ingredient in ingredients:
@@ -111,5 +123,33 @@ def bake(ingredients, offset=0, blocks=1):
     return(key.read())
 
 
+def key_size(message):
+    """ Calculate the desired key size in 64 byte blocks.
+    """
+    return (len(message) // 64) + 1
+
+
+def xor(message, key):
+    """ Xor a message with a key.
+    """
+    return bytes(m ^ k for m, k in zip(message, key))
+
+
+def armor_text(blob, width=100):
+    """ Generate ASCII armored text.
+    """
+    header = '-----BEGIN PFSE MESSAGE-----'
+    footer = '-----END PFSE MESSAGE-----'
+    text = '\n'.join(textwrap.wrap(base64.b64encode(blob).decode('ascii'), width=width))
+    return header + '\n\n' + text + '\n' + footer
+
+
 if __name__ == '__main__':
-    a = fetch_ingredients(RECIPE)
+
+    message = 'This is a test.'.encode()
+    password = 'make it a passphrase instead'.encode()
+    ingredients = fetch_ingredients(RECIPE)
+    ingredients.append(secret_ingredient('secret.jpg'))
+    key = bake(ingredients, password, blocks=key_size(message))
+    print(xor(message, key))
+    key = bake(ingredients, password, blocks=10)
