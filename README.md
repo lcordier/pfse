@@ -1,2 +1,2 @@
 # pfse
-Pretty Frecking Strong Encryption
+Pretty Frakking Strong Encryption
