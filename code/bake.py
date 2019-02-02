@@ -9,10 +9,10 @@ import textwrap
 import requests
 
 
-RECIPE = """
-http://www.louiscordier.com/louis.jpg#0,100
-http://www.louiscordier.com/die_manne.jpg#1000,100
-"""
+ARMOR_TYPES = {
+    'message': ('-----BEGIN PFSE MESSAGE-----', '-----END PFSE MESSAGE-----'),
+    'recipe': ('-----BEGIN PFSE RECIPE-----', '-----END PFSE RECIPE-----')
+}
 
 
 class IngredientError(Exception):
@@ -39,6 +39,12 @@ class Ingredient(object):
 
     def seek(self, index):
         self.index = index
+
+
+class SecretIngredient(Ingredient):
+    """ Wraps a secret ingredient.
+    """
+    pass
 
 
 def fetch_ingredient(ingredient):
@@ -99,15 +105,19 @@ def secret_ingredient(path, offset=0, size=0):
         else:
             data = f.read()
 
-    return Ingredient(data)
+    return SecretIngredient(data)
 
 
-def bake(ingredients, password=b'', offset=0, blocks=1):
+def bake(ingredients, passphrase=b'', offset=0, blocks=1, strong=True):
     """ Bake a key from the ingredients.
     """
+    if strong:
+        if SecretIngredient not in [type(ingredient) for ingredient in ingredients]:
+            raise IngredientError('At least one SecretIngredient needed.')
+
     key = io.BytesIO()
     sha512 = hashlib.sha512()
-    sha512.update(password)
+    sha512.update(passphrase)
 
     for idx in range(offset):
         for ingredient in ingredients:
@@ -135,21 +145,27 @@ def xor(message, key):
     return bytes(m ^ k for m, k in zip(message, key))
 
 
-def armor_text(blob, width=100):
+def armor_text(blob, type='message', width=100):
     """ Generate ASCII armored text.
     """
-    header = '-----BEGIN PFSE MESSAGE-----'
-    footer = '-----END PFSE MESSAGE-----'
+    header, footer = ARMOR_TYPES.get(type, (None, None))
     text = '\n'.join(textwrap.wrap(base64.b64encode(blob).decode('ascii'), width=width))
     return header + '\n\n' + text + '\n' + footer
 
 
+recipe = """
+http://www.louiscordier.com/louis.jpg#0,100
+http://www.louiscordier.com/die_manne.jpg#1000,100
+"""
+
 if __name__ == '__main__':
 
     message = 'This is a test.'.encode()
-    password = 'make it a passphrase instead'.encode()
-    ingredients = fetch_ingredients(RECIPE)
+    passphrase = 'A really long passphrase'.encode()
+    ingredients = fetch_ingredients(recipe)
     ingredients.append(secret_ingredient('secret.jpg'))
-    key = bake(ingredients, password, blocks=key_size(message))
-    print(xor(message, key))
-    key = bake(ingredients, password, blocks=10)
+    key = bake(ingredients, passphrase, blocks=key_size(message))
+    cipher = xor(message, key)
+    print(armor_text(cipher))
+    print('')
+    print(armor_text(recipe.encode(), type='recipe'))
