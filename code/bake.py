@@ -14,6 +14,10 @@ ARMOR_TYPES = {
     'recipe': ('-----BEGIN PFSE RECIPE-----', '-----END PFSE RECIPE-----')
 }
 
+ARMOR_LOOKUP = {}
+for type_, (header, footer) in ARMOR_TYPES.items():
+    ARMOR_LOOKUP[header] = type_
+
 
 class IngredientError(Exception):
     pass
@@ -51,7 +55,7 @@ def fetch_ingredient(ingredient):
     """ Fetch a single ingredient.
     """
     ingredient = ingredient.strip()
-    if not ingredient:
+    if not ingredient.lower().startswith('http'):
         return None
 
     if '#' in ingredient:
@@ -61,6 +65,7 @@ def fetch_ingredient(ingredient):
 
     offset, size = [int(i) for i in offset_size.split(',', 1)]
 
+    # Consider setting a custom User-Agent.
     if size > 0:
         headers = {'Range': 'bytes={}-{}'.format(offset, offset + size - 1)}
     else:
@@ -113,11 +118,11 @@ def bake(ingredients, passphrase=b'', offset=0, blocks=1, strong=True):
     """
     if strong:
         if SecretIngredient not in [type(ingredient) for ingredient in ingredients]:
-            raise IngredientError('At least one SecretIngredient needed.')
+            raise IngredientError('At least one SecretIngredient is needed.')
 
     key = io.BytesIO()
     sha512 = hashlib.sha512()
-    sha512.update(passphrase)
+    sha512.update(passphrase)  # Make brute-force a bit harder.
 
     for idx in range(offset):
         for ingredient in ingredients:
@@ -145,20 +150,51 @@ def xor(message, key):
     return bytes(m ^ k for m, k in zip(message, key))
 
 
-def armor_text(blob, type='message', width=100):
+def armor(blob, type='message', width=100):
     """ Generate ASCII armored text.
     """
     header, footer = ARMOR_TYPES.get(type, (None, None))
-    text = '\n'.join(textwrap.wrap(base64.b64encode(blob).decode('ascii'), width=width))
+    if header:
+        text = '\n'.join(textwrap.wrap(base64.b64encode(blob).decode('ascii'), width=width))
+    else:
+        text = ''
+
     return header + '\n\n' + text + '\n' + footer
 
 
-recipe = """
-http://www.louiscordier.com/louis.jpg#0,100
-http://www.louiscordier.com/die_manne.jpg#1000,100
-"""
+def dearmor(text):
+    """ Decode embedded ASCII armored texts.
+    """
+    blobs = []
+    state = None
+    for line in text.splitlines():
+        if state is None:
+            for header, type in ARMOR_LOOKUP.items():
+                if header in line:
+                    state = type
+                    footer = ARMOR_TYPES[type][1]
+                    payload = ''
+        else:
+            if footer not in line:
+                payload += line
+            else:
+                if state in ['recipe']:
+                    blobs.append((state, base64.b64decode(payload).decode()))
+                else:
+                    blobs.append((state, base64.b64decode(payload)))
+                state = None
+
+    return blobs
+
 
 if __name__ == '__main__':
+
+    recipe = """
+    http://www.louiscordier.com/louis.jpg#0,100
+    http://www.louiscordier.com/die_manne.jpg#1000,100
+
+    Note: Use that image of me at Jacques's bday party as your secret ingredient.
+    """
 
     message = 'This is a test.'.encode()
     passphrase = 'A really long passphrase'.encode()
@@ -166,6 +202,8 @@ if __name__ == '__main__':
     ingredients.append(secret_ingredient('secret.jpg'))
     key = bake(ingredients, passphrase, blocks=key_size(message))
     cipher = xor(message, key)
-    print(armor_text(cipher))
+    print(armor(cipher))
     print('')
-    print(armor_text(recipe.encode(), type='recipe'))
+    print(armor(recipe.encode(), type='recipe'))
+    print('')
+    print(dearmor('some text' + armor(cipher) + '\n' + armor(recipe.encode(), type='recipe')))
