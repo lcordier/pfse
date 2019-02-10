@@ -5,7 +5,9 @@
     https://en.wikipedia.org/wiki/Diffie%E2%80%93Hellman_key_exchange
     https://www.youtube.com/watch?v=Yjrfm_oRO0w
 """
-from random import randint
+import os
+import random
+import time
 
 
 # https://www.ietf.org/rfc/rfc3526.txt
@@ -104,18 +106,37 @@ def hex2int(hex):
     return int(''.join([line.strip().replace(' ', '') for line in hex.splitlines()]), 16)
 
 
+def consume(n):
+    """ Consume some values from the PRNG.
+    """
+    print(n)
+    for i in range(n):
+        random.randint(1, 255)
+
+
+def urandom(n):
+    """ Generate an integer random value with 8n bits entropy.
+    """
+    return int.from_bytes(os.urandom(n), byteorder='big')
+
+
 if __name__ == '__main__':
+
     g = 2
-    p = hex2int(MODP16)
+    p = hex2int(MODP14)
+    q = (p - 1) // 2
 
-    a = randint(2, p.bit_length())
-    A = (g ** a) % p
+    random.seed(urandom(512))
+    consume(urandom(1))
 
-    b = randint(2, p.bit_length())
-    B = (g ** b) % p
+    a = random.randint(2, q - 2)
+    A = pow(g, a, p)
 
-    sa = (A ** b) % p
-    sb = (B ** a) % p
+    b = random.randint(2, q - 2)
+    B = pow(g, b, p)
+
+    sa = pow(A, b, p)
+    sb = pow(B, a, p)
 
     print(sa == sb)
     print(sa)
