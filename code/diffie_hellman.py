@@ -9,6 +9,8 @@ import os
 import random
 import time
 
+from armor import armor, dearmor
+
 
 # https://www.ietf.org/rfc/rfc3526.txt
 # 2048 bits
@@ -106,10 +108,21 @@ def hex2int(hex):
     return int(''.join([line.strip().replace(' ', '') for line in hex.splitlines()]), 16)
 
 
+def int2bytes(i):
+    """ Convert int to bytes.
+    """
+    return i.to_bytes((i.bit_length() + 7) // 8, 'big')
+
+
+def bytes2int(b):
+    """ Convert bytes to int.
+    """
+    return int.from_bytes(b, byteorder='big')
+
+
 def consume(n):
     """ Consume some values from the PRNG.
     """
-    print(n)
     for i in range(n):
         random.randint(1, 255)
 
@@ -120,24 +133,59 @@ def urandom(n):
     return int.from_bytes(os.urandom(n), byteorder='big')
 
 
+class DH(object):
+    """ Diffie-Hellman Key Exchange.
+    """
+    def __init__(self, g=2, p=hex2int(MODP16)):
+        self.g = g
+        self.p = p
+        self.q = (p - 1) // 2
+        self.a = None
+        self.A = None
+        self.B = None
+
+    def generate_secret(self):
+        """ Generate a random secret for Alice.
+        """
+        random.seed(urandom(512))
+        consume(urandom(1))
+        self.a = random.randint(2, self.q - 2)
+
+    def generate_publickey(self):
+        """ Generate a public key for Alice.
+        """
+        self.A = pow(self.g, self.a, self.p)
+        return(armor(int2bytes(self.A), type='dh-publickey'))
+
+    def load_publickey(self, text):
+        """ Load Bob's public key.
+        """
+        for type_, blob in dearmor(text):
+            if type_ in ['dh-publickey']:
+                self.B = bytes2int(blob)
+                break
+
+    def generate_privatekey(self):
+        """ Use Alice and Bob's public keys to mix a prive key.
+        """
+        self.sa = pow(self.B, self.a, self.p)
+        return(self.sa)
+
+
 if __name__ == '__main__':
 
-    g = 2
-    p = hex2int(MODP14)
-    q = (p - 1) // 2
+    alice = DH()
+    alice.generate_secret()
+    alice_pk = alice.generate_publickey()
+    print(alice_pk)
 
-    random.seed(urandom(512))
-    consume(urandom(1))
+    bob = DH()
+    bob.generate_secret()
+    bob_pk = bob.generate_publickey()
+    print(bob_pk)
 
-    a = random.randint(2, q - 2)
-    A = pow(g, a, p)
+    alice.load_publickey(bob_pk)
+    print(alice.generate_privatekey())
 
-    b = random.randint(2, q - 2)
-    B = pow(g, b, p)
-
-    sa = pow(A, b, p)
-    sb = pow(B, a, p)
-
-    print(sa == sb)
-    print(sa)
-    print(sa.bit_length())
+    bob.load_publickey(alice_pk)
+    print(bob.generate_privatekey())
