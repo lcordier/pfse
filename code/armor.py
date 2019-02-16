@@ -24,7 +24,7 @@ def armor(blob, type='message', width=80):
     else:
         text = ''
 
-    return header + '\n\n' + text + '\n' + footer
+    return header + '\n' + text + '\n' + footer
 
 
 def dearmor(text):
