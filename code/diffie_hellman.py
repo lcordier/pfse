@@ -168,8 +168,8 @@ class DH(object):
     def generate_privatekey(self):
         """ Use Alice and Bob's public keys to mix a prive key.
         """
-        self.sa = pow(self.B, self.a, self.p)
-        return(self.sa)
+        self.privatekey = pow(self.B, self.a, self.p)
+        return(self.privatekey)
 
 
 if __name__ == '__main__':
