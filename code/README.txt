@@ -1,5 +1,5 @@
 
-Pretty Frecking Strong Encryption
+Pretty Frakking Strong Encryption
 
 Author: Louis Cordier <lcordier@gmail.com>
 Copyright: (c) 2009-2023, All rights reserved.
