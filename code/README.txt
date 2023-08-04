@@ -2,12 +2,12 @@
 Pretty Frecking Strong Encryption
 
 Author: Louis Cordier <lcordier@gmail.com>
-Copyright: (c) 2009, All rights reserved.
+Copyright: (c) 2009-2023, All rights reserved.
 
 This program focuses on the key distribution problem of one-time pads.
 Instead of distributing a key we distribute a recipe to make a key.
 Thus a size-bounded recipe can be turned into an size-unbounded key.
-For example a 5 characters recipe can be turned into a 1TB key.
+For example a 200 characters recipe can be turned into a 1TB key.
 Given a publicly shared recipe and a small shared secret (ingredient)
 the generated key can be concidered random for all practical purposes.
 
@@ -21,13 +21,12 @@ reasons why.
 [3] http://www.cs.auckland.ac.nz/~pgut001/pubs/secure_del.html
 
 
-REQUIRED PACKAGES
-    apt-get install python-pycurl
-
-
 SYNOPSIS
-    python pfse.py -h
+    ./pfse.py -h
 
-    ./pfse.py -r http://www.google.com/#http://example.com/ingredient1#http://example.com/ingredient2 -i message.txt -o message.enc
-    ./pfse.py -r http://www.google.com/#http://example.com/ingredient1#http://example.com/ingredient2 -c catalog -f simple -i message.txt -o message.enc
+    # Encrypt
+    ./pfse.py -r recipe.csv -s 'k(i-1) + k(i+1)' -i message.txt -o message.enc
+
+    # Decrypt
+    ./pfse.py -r recipe.csv -s 'k(i-1) + k(i+1)' -i message.enc -o message.txt
 

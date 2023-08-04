@@ -124,7 +124,7 @@ def consume(n):
     """ Consume some values from the PRNG.
     """
     for i in range(n):
-        random.randint(1, 255)
+        random.randint(0, 255)
 
 
 def urandom(n):
@@ -155,7 +155,7 @@ class DH(object):
         """ Generate a public key for Alice.
         """
         self.A = pow(self.g, self.a, self.p)
-        return(armor(int2bytes(self.A), type='dh-publickey'))
+        return armor(int2bytes(self.A), type='dh-publickey')
 
     def load_publickey(self, text):
         """ Load Bob's public key.
@@ -169,7 +169,7 @@ class DH(object):
         """ Use Alice and Bob's public keys to mix a prive key.
         """
         self.privatekey = pow(self.B, self.a, self.p)
-        return(self.privatekey)
+        return self.privatekey
 
 
 if __name__ == '__main__':
@@ -189,3 +189,4 @@ if __name__ == '__main__':
 
     bob.load_publickey(alice_pk)
     print(bob.generate_privatekey())
+

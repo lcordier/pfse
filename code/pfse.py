@@ -2,7 +2,9 @@
 
 """
     Pretty Frecking Strong Encryption
-    (c) 2018-2023 Louis Cordier <lcordier@gmail.com>
+
+    Author: Louis Cordier <lcordier@gmail.com>
+    Copyright: (c) 2009-2023, All rights reserved.
 
     This program focuses on the key distribution problem of one-time pads.
     Instead of distributing a key we distribute a recipe to make a key.
@@ -60,37 +62,6 @@ def pad(key, size=SIZE):
     b = src * ((size // n) + 1)
     k = np.frombuffer(b, dtype=np.uint8, count=size)
     return k
-
-
-def gen_password_key(password, size=SIZE):
-    """ Generate a key from a password/passphrase.
-    """
-    return pad(password, size=size)
-
-
-def gen_file_key(path, size=SIZE):
-    """ Read key from a file..
-    """
-    with open(path, 'rb') as fh:
-        blob = fh.read(size)
-
-    return pad(blob, size=size)
-
-
-def gen_url_key(url, offset=0, size=SIZE):
-    """ Obtain a key from an URL.
-    """
-    headers = {
-        'Range': 'bytes={}-{}'.format(offset, offset + size),
-        'User-Agent': USER_AGENT,
-    }
-    response = requests.get(url, headers=headers, stream=True)
-
-    if response.status_code in [200, 206]:
-        return pad(response.content, size=size)
-    else:
-        # 404 + all others.
-        raise ValueError("Web Resource Unavailable")
 
 
 def mutate_hash(key, method='sha256'):
@@ -159,6 +130,37 @@ def mutate_formula(key, formula):
     return np.frombuffer(bytes(k), dtype=np.uint8, count=size) ^ src
 
 
+def gen_password_key(password, size=SIZE):
+    """ Generate a key from a password/passphrase.
+    """
+    return mutate_hash(pad(password, size=size), 'scrypt')
+
+
+def gen_file_key(path, size=SIZE):
+    """ Read key from a file..
+    """
+    with open(path, 'rb') as fh:
+        blob = fh.read(size)
+
+    return pad(blob, size=size)
+
+
+def gen_url_key(url, offset=0, size=SIZE):
+    """ Obtain a key from an URL.
+    """
+    headers = {
+        'Range': 'bytes={}-{}'.format(offset, offset + size),
+        'User-Agent': USER_AGENT,
+    }
+    response = requests.get(url, headers=headers, stream=True)
+
+    if response.status_code in [200, 206]:
+        return pad(response.content, size=size)
+    else:
+        # 404 + all others.
+        raise ValueError("Web Resource Unavailable")
+
+
 def xor(input_, output, key, size=SIZE):
     """ Bitwise XOR input_ with key and write to output.
     """
@@ -211,7 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input', dest='input', action='store', type=str, default='', help='input filename')
     parser.add_argument('-o', '--output', dest='output', action='store', type=str, default='', help='output filename')
     parser.add_argument('-r', '--recipe', dest='recipe', action='store', type=str, default='recipe.csv', help='recipe filename [%(default)s]')
-    parser.add_argument('-s', '--secret', dest='secret', action='store', type=str, default='x-y + e**(i % 7)', help='mutation formula, secret ingredient')
+    parser.add_argument('-s', '--secret', dest='secret', action='store', type=str, default='k(i+1) - k(i-1)', help='mutation formula, secret ingredient')
     parser.add_argument('-w', '--wipe', dest='wipe', action='store_true', default=False, help='securely wipe the input file')
     args = parser.parse_args()
 
