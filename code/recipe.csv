@@ -1,5 +1,9 @@
-"comment","For your secret-ingredient use the formula I email you on 2023-04-01."
+"comment","For your secret ingredient use the formula I emailed you on 2023-04-01."
+
 "file","pfse.py"
 "url","http://www.louiscordier.com/louis.jpg"
 "password","my voice is my password please verify me"
 
+"comment","For an additional secret ingredient add a file-row to this recipe"
+"comment","that points to the picture of us at the braai on your 40th birthday"
+"comment","with the md5sum of 054cca07213b21bd86a7d91f15eff823."
